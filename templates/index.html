@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Digit Recognizer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        // Configure TailwindCSS dark mode
+        tailwind.config = {
+            darkMode: 'class'
+        }
+    </script>
+</head>
+<body class="bg-gray-100 dark:bg-gray-900 min-h-screen transition-colors duration-200">
+    <div class="container mx-auto px-4 py-8">
+        <div class="max-w-2xl mx-auto">
+            <!-- Theme Toggle Button -->
+            <div class="flex justify-end mb-4">
+                <button id="themeToggle" class="p-2 rounded-lg bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors">
+                    <svg id="sunIcon" class="w-6 h-6 hidden dark:block text-yellow-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
+                    </svg>
+                    <svg id="moonIcon" class="w-6 h-6 block dark:hidden text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
+                    </svg>
+                </button>
+            </div>
+
+            <h1 class="text-4xl font-bold text-center mb-4 text-gray-800 dark:text-white">Digit Recognizer</h1>
+            <p class="text-center text-gray-600 dark:text-gray-300 mb-8">
+                Draw a single digit (0-9) in the box below or click "Generate Sample" to test the model.
+            </p>
+
+            <div class="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6">
+                <!-- Grid Container -->
+                <div class="grid grid-cols-8 gap-0.5 mb-6 mx-auto w-64 h-64 border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-700">
+                </div>
+
+                <div class="flex justify-center space-x-4 mb-6">
+                    <button id="predictBtn" class="bg-blue-500 text-white px-6 py-2 rounded-lg hover:bg-blue-600 transition-colors">
+                        Predict
+                    </button>
+                    <button id="resetBtn" class="bg-gray-500 text-white px-6 py-2 rounded-lg hover:bg-gray-600 transition-colors">
+                        Reset
+                    </button>
+                    <button id="sampleBtn" class="bg-green-500 text-white px-6 py-2 rounded-lg hover:bg-green-600 transition-colors">
+                        Generate Sample
+                    </button>
+                </div>
+
+                <div id="result" class="hidden">
+                    <div class="text-center p-6 bg-gray-50 dark:bg-gray-700 rounded-lg">
+                        <!-- Main Prediction -->
+                        <div class="mb-4">
+                            <div class="text-7xl font-bold mb-2 text-gray-800 dark:text-white" id="prediction">-</div>
+                            <div id="confidenceBadge" class="inline-block px-3 py-1 rounded-full text-sm font-medium">
+                                <span id="confidence">-</span>% confidence
+                            </div>
+                        </div>
+
+                        <!-- Top 3 Predictions -->
+                        <div class="mt-4 pt-4 border-t border-gray-200 dark:border-gray-600">
+                            <h3 class="text-sm font-medium text-gray-500 dark:text-gray-400 mb-2">Other Possibilities</h3>
+                            <div id="top3Container" class="space-y-2">
+                                <!-- Top 3 predictions will be inserted here -->
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Theme handling
+        function initTheme() {
+            if (localStorage.theme === 'dark' || (!('theme' in localStorage) && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+                document.documentElement.classList.add('dark');
+            } else {
+                document.documentElement.classList.remove('dark');
+            }
+        }
+
+        function toggleTheme() {
+            if (document.documentElement.classList.contains('dark')) {
+                document.documentElement.classList.remove('dark');
+                localStorage.theme = 'light';
+            } else {
+                document.documentElement.classList.add('dark');
+                localStorage.theme = 'dark';
+            }
+        }
+
+        // Initialize theme
+        initTheme();
+
+        // Theme toggle button
+        document.getElementById('themeToggle').addEventListener('click', toggleTheme);
+
+        // Initialize the grid
+        const gridContainer = document.querySelector('.grid');
+        const cells = [];
+        const pixelValues = new Array(64).fill(0);
+
+        // Create grid cells
+        for (let i = 0; i < 64; i++) {
+            const cell = document.createElement('div');
+            cell.className = 'w-8 h-8 bg-gray-50 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 cursor-pointer transition-colors border border-gray-200 dark:border-gray-600';
+            cell.dataset.index = i;
+            cells.push(cell);
+            gridContainer.appendChild(cell);
+
+            // Add click event
+            cell.addEventListener('click', () => {
+                const currentValue = pixelValues[i];
+                const newValue = currentValue > 0 ? 0 : 16;
+                pixelValues[i] = newValue;
+                cell.style.backgroundColor = newValue > 0 ? 
+                    (document.documentElement.classList.contains('dark') ? '#1F2937' : '#374151') : 
+                    (document.documentElement.classList.contains('dark') ? '#374151' : '#F9FAFB');
+            });
+
+            // Add drag functionality
+            cell.addEventListener('mouseenter', (e) => {
+                if (e.buttons === 1) {
+                    pixelValues[i] = 16;
+                    cell.style.backgroundColor = document.documentElement.classList.contains('dark') ? '#1F2937' : '#374151';
+                }
+            });
+        }
+
+        // Prevent drag selection
+        gridContainer.addEventListener('dragstart', (e) => e.preventDefault());
+
+        // Reset button
+        document.getElementById('resetBtn').addEventListener('click', () => {
+            cells.forEach((cell, i) => {
+                pixelValues[i] = 0;
+                cell.style.backgroundColor = document.documentElement.classList.contains('dark') ? '#374151' : '#F9FAFB';
+            });
+            document.getElementById('result').classList.add('hidden');
+        });
+
+        // Sample button - create a simple "1" digit
+        document.getElementById('sampleBtn').addEventListener('click', () => {
+            const sampleOne = new Array(64).fill(0);
+            [19, 27, 35, 43, 51].forEach(i => {
+                sampleOne[i] = 16;
+                cells[i].style.backgroundColor = document.documentElement.classList.contains('dark') ? '#1F2937' : '#374151';
+            });
+            Object.assign(pixelValues, sampleOne);
+        });
+
+        // Predict button
+        document.getElementById('predictBtn').addEventListener('click', async () => {
+            try {
+                const response = await fetch('/predict', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ pixels: pixelValues }),
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    // Update main prediction
+                    document.getElementById('prediction').textContent = data.prediction;
+                    
+                    // Update confidence badge with color
+                    const confidenceBadge = document.getElementById('confidenceBadge');
+                    const confidence = data.confidence;
+                    document.getElementById('confidence').textContent = confidence;
+                    
+                    // Set badge color based on confidence
+                    if (confidence >= 90) {
+                        confidenceBadge.className = 'inline-block px-3 py-1 rounded-full text-sm font-medium bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300';
+                    } else if (confidence >= 70) {
+                        confidenceBadge.className = 'inline-block px-3 py-1 rounded-full text-sm font-medium bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300';
+                    } else {
+                        confidenceBadge.className = 'inline-block px-3 py-1 rounded-full text-sm font-medium bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-300';
+                    }
+
+                    // Update top 3 predictions
+                    const top3Container = document.getElementById('top3Container');
+                    top3Container.innerHTML = ''; // Clear previous results
+                    
+                    data.top_3.forEach((pred, index) => {
+                        if (index > 0) { // Skip the first prediction as it's already shown above
+                            const predElement = document.createElement('div');
+                            predElement.className = 'flex items-center justify-between text-sm';
+                            
+                            // Set opacity based on rank
+                            const opacity = index === 1 ? 'opacity-75' : 'opacity-50';
+                            
+                            predElement.innerHTML = `
+                                <span class="text-gray-600 dark:text-gray-300 ${opacity}">Digit ${pred.digit}</span>
+                                <span class="text-gray-500 dark:text-gray-400 ${opacity}">${pred.probability}%</span>
+                            `;
+                            top3Container.appendChild(predElement);
+                        }
+                    });
+
+                    document.getElementById('result').classList.remove('hidden');
+                } else {
+                    alert('Error: ' + data.error);
+                }
+            } catch (error) {
+                alert('Error making prediction: ' + error.message);
+            }
+        });
+    </script>
+</body>
+</html> 
