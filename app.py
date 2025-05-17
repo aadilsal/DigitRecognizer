@@ -12,17 +12,21 @@ CORS(app)
 # Load the pre-trained model
 model = load('digits_model.joblib')
 
-# Ensure feedback directory exists
-FEEDBACK_DIR = 'feedback'
-if not os.path.exists(FEEDBACK_DIR):
-    os.makedirs(FEEDBACK_DIR)
+# Configure feedback storage (optional)
+ENABLE_FEEDBACK = os.environ.get('ENABLE_FEEDBACK', 'false').lower() == 'true'
+FEEDBACK_DIR = os.environ.get('FEEDBACK_DIR', 'feedback')
 
-# Initialize CSV file if it doesn't exist
-FEEDBACK_FILE = os.path.join(FEEDBACK_DIR, 'wrong_predictions.csv')
-if not os.path.exists(FEEDBACK_FILE):
-    with open(FEEDBACK_FILE, 'w', newline='') as f:
-        writer = csv.writer(f)
-        writer.writerow(['timestamp', 'predicted_digit', 'pixel_values'])
+if ENABLE_FEEDBACK:
+    # Ensure feedback directory exists
+    if not os.path.exists(FEEDBACK_DIR):
+        os.makedirs(FEEDBACK_DIR)
+
+    # Initialize CSV file if it doesn't exist
+    FEEDBACK_FILE = os.path.join(FEEDBACK_DIR, 'wrong_predictions.csv')
+    if not os.path.exists(FEEDBACK_FILE):
+        with open(FEEDBACK_FILE, 'w', newline='') as f:
+            writer = csv.writer(f)
+            writer.writerow(['timestamp', 'predicted_digit', 'pixel_values'])
 
 @app.route('/')
 def home():
@@ -63,6 +67,12 @@ def predict():
 
 @app.route('/feedback', methods=['POST'])
 def record_feedback():
+    if not ENABLE_FEEDBACK:
+        return jsonify({
+            'status': 'error',
+            'message': 'Feedback collection is disabled'
+        }), 400
+
     try:
         data = request.json
         pixels = data.get('pixels', [])
@@ -71,7 +81,7 @@ def record_feedback():
         # Save to CSV
         timestamp = datetime.now().isoformat()
         with open(FEEDBACK_FILE, 'a', newline='') as f:
-            writer = csv.writer(f)
+            writer = csv.writer(f) 
             writer.writerow([timestamp, predicted_digit, ','.join(map(str, pixels))])
         
         return jsonify({
@@ -85,4 +95,5 @@ def record_feedback():
         }), 400
 
 if __name__ == '__main__':
-    app.run(debug=True) 
+    port = int(os.environ.get('PORT', 5000))
+    app.run(host='0.0.0.0', port=port) 
