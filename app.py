@@ -5,6 +5,10 @@ from flask_cors import CORS
 import csv
 from datetime import datetime
 import os
+import cv2
+from PIL import Image
+import io
+import base64
 
 app = Flask(__name__)
 CORS(app)
@@ -28,6 +32,51 @@ if ENABLE_FEEDBACK:
             writer = csv.writer(f)
             writer.writerow(['timestamp', 'predicted_digit', 'pixel_values'])
 
+def preprocess_image(image_data):
+    """
+    Preprocess the image to match our model's format:
+    - Convert to grayscale
+    - Resize to 8x8 (64 features)
+    - Normalize pixel values
+    - Invert colors if needed
+    """
+    # Convert base64 to image
+    if isinstance(image_data, str) and image_data.startswith('data:image'):
+        # Remove the data URL prefix
+        image_data = image_data.split(',')[1]
+    
+    # Decode base64 image
+    image_bytes = base64.b64decode(image_data)
+    image = Image.open(io.BytesIO(image_bytes))
+    
+    # Convert to grayscale
+    image = image.convert('L')
+    
+    # Convert to numpy array
+    img_array = np.array(image)
+    
+    # Add padding to make the image square
+    height, width = img_array.shape
+    size = max(height, width)
+    pad_h = (size - height) // 2
+    pad_w = (size - width) // 2
+    img_array = np.pad(img_array, ((pad_h, size - height - pad_h), (pad_w, size - width - pad_w)), mode='constant', constant_values=0)
+    
+    # Resize to 8x8
+    img_array = cv2.resize(img_array, (8, 8), interpolation=cv2.INTER_AREA)
+    
+    # Normalize pixel values to 0-16 range (like our training data)
+    img_array = (img_array / 255.0 * 16.0).astype(np.float32)
+    
+    # Invert colors if needed (our model expects white digits on black background)
+    if img_array.mean() > 8:  # If background is white (assuming 16 is max value)
+        img_array = 16 - img_array
+    
+    # Flatten the image to 1D array of 64 pixels
+    img_array = img_array.reshape(1, -1)
+    
+    return img_array
+
 @app.route('/')
 def home():
     return render_template('index.html')
@@ -35,11 +84,26 @@ def home():
 @app.route('/predict', methods=['POST'])
 def predict():
     try:
-        # Get the pixel data from the request
-        data = request.json['pixels']
-        
-        # Convert to numpy array and reshape for prediction
-        pixels = np.array(data, dtype=float).reshape(1, -1)
+        # Check if the request contains drawn pixels or an uploaded image
+        if 'image' in request.json:
+            # Process uploaded image
+            pixels = preprocess_image(request.json['image'])
+        else:
+            # Process drawn pixels
+            data = request.json['pixels']
+            # Convert drawn pixels to 8x8 image
+            img_array = np.array(data, dtype=float).reshape(8, 8)
+            
+            # Normalize pixel values to 0-16 range if they aren't already
+            if img_array.max() > 16:
+                img_array = (img_array / 255.0 * 16.0).astype(np.float32)
+            
+            # Invert colors if needed (our model expects white digits on black background)
+            if img_array.mean() > 8:  # If background is white (assuming 16 is max value)
+                img_array = 16 - img_array
+            
+            # Reshape to 1x64 for prediction
+            pixels = img_array.reshape(1, -1)
         
         # Make prediction
         prediction = int(model.predict(pixels)[0])
